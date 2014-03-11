@@ -20,8 +20,8 @@
 #define SDIO PB4
 
 #define SET_SDA_IN() DDRB &= ~(1 << SDA)
-#define SET_SDA_OUT() DDRB |= (1 << SDA)
-//#define READ_SDA() (PINB & (1 << SDA)) ? 1 : 0
+#define SET_SDA_OUT() DDRB |= (1 << SDA)   // use simplified version because AtmelStudio gcc sucks
+//#define READ_SDA() (PINB & (1 << SDA)) ? 1 : 0  // turns out this code turns into too many instructions
 #define READ_SDA() ((PINB & 2) ? 1 : 0)
 //#define READ_SCL() (PINB & (1 << SCL)) ? 1 : 0
 #define READ_SCL() (PINB & 1)
@@ -33,6 +33,7 @@
 
 #define MY_ADR 0x28
 
+// diagnostic routine that relays a pin to the SDIO pin, so we can see what we're seeing on I2C, for example
 void relay_pin(char value) {
 	if( value )	
 		PORTB |= (1 << SDIO);
@@ -40,6 +41,7 @@ void relay_pin(char value) {
 		PORTB &= ~(1 << SDIO);
 }
 
+// this just causes SDIO to blink at 1Hz forever
 void blink() {
 	while(1) {
 		PORTB |= (1 << SDIO);
@@ -50,6 +52,8 @@ void blink() {
 	
 }
 
+// this will blink out a number using pulse width modulation, for a number of times specified by count
+// it's useful for figuring out internal state variables, as I don't have a JTAG-like debugger and no console
 void blink_num(unsigned char num, unsigned int count) {
 	int i;
 	while(count--) {
@@ -70,6 +74,8 @@ void blink_num(unsigned char num, unsigned int count) {
 		}
 	}	
 }
+
+// wait for stop state on I2C
 void wait_stop() {
 
 	WAIT_SCL_RISE();
@@ -89,6 +95,7 @@ void wait_stop() {
 	}
 }
 
+// get the address
 int get_address() {
 	unsigned char bus;
 	unsigned char bit;
@@ -134,7 +141,7 @@ int get_data(char ack) {
 	unsigned char bit;
 
 	bus = 0;
-#if 0
+#if 0  // not needed on get_data
 	///// wait for start
 	while((PINB & 3) != 0x1)  // wait for start condition
 	;
@@ -200,12 +207,15 @@ void write_spi(unsigned short data) {
 	for( i = 7; i >= 0; i-- ) {
 		spi_bit( (dummy >> i) & 0x1 );  // send "write" command	
 	}
+	// note because this is 16-bit data, it takes a LOT longer to
+	// process this loop than the previous one. So if you're expecting
+	// even bit times, sorry. The time between bits is pretty much chaos.
 	for( i = 15; i >= 0; i-- ) {
 		spi_bit( (data >> i) & 0x1 );
 	}
 	SET_SCS;
 
-	spi_bit(0); // dummy clock
+	spi_bit(0); // dummy clock, just in case target needs a clock to see CS going high
 }
 
 int main(void)
@@ -228,12 +238,9 @@ int main(void)
 	
 	DDRB &= ~(1 << SCL);  // set SCL as input
 	SET_SDA_IN();
-		
-	//DDRB = 0;
-	
+			
 	while((PINB & 3) != 0x3)  // wait until idle condition
 		;
-//relay_pin(PINB & 2)
 	
 	while(1) {
 		while( !get_address() )
@@ -245,8 +252,9 @@ int main(void)
 //		blink_num(dataOne, 1);
 		
 //		blink_num(dataTwo, 1);
+
+		// export the data to the SPI interface
 		data = ((dataOne & 0xff) << 8) | (dataTwo & 0xFF);
 		write_spi(data);
-		// then here we would bitbang to SPI
 	}
 }
